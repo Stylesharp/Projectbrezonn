@@ -101,7 +101,7 @@ export function LogsTab() {
         `[STATUS] RPM: ${Math.round(telemetry?.rpm || 0)}`,
         `[STATUS] Oil P: ${telemetry?.oilPressure?.toFixed(2)} BAR`,
         `[STATUS] CHT (avg): ${(telemetry?.chts?.reduce((a,b)=>a+b,0)/4 || 0).toFixed(1)} deg C`,
-        `[STATUS] RUL: ${((telemetry?.rulHours * 60) || 6000).toFixed(0)} MINS`
+        `[STATUS] RUL: ${telemetry?.rulHours != null ? (telemetry.rulHours >= 1 ? `${Math.floor(telemetry.rulHours)}H ${Math.round((telemetry.rulHours % 1) * 60)}M` : `${Math.round(telemetry.rulHours * 60)} MINS`) : '1420H 00M'}`
       );
     } else if (cmd === 'export') {
       newLogs.push('[SYSTEM] Exporting blackbox flight recorder data...');

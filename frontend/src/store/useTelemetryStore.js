@@ -153,6 +153,16 @@ export const useTelemetryStore = create((set, get) => ({
           component: 'HYDRAULIC POWER UNIT'
         });
       }
+      // RUL Imminent Failure Alert
+      if (data.rulHours < 1.0 && prev.rulHours >= 1.0) {
+        newAlarms.push({
+          id: `rul-${now}`,
+          timestamp: now,
+          message: `Predictive R.U.L. critical threshold: ${(data.rulHours * 60).toFixed(0)} MINS remaining`,
+          severity: 'CRITICAL',
+          component: 'AI PROGNOSTICS CORE'
+        });
+      }
     }
 
     set((state) => {

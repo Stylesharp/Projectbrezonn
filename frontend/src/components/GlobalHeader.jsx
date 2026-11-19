@@ -6,8 +6,23 @@ import { twMerge } from 'tailwind-merge';
 export function GlobalHeader() {
   const { connected, latency, alarmLog, telemetry, clearAlarms, setActivePanel } = useTelemetryStore();
   const [showDropdown, setShowDropdown] = useState(false);
+  const [missionTime, setMissionTime] = useState('');
   const dropdownRef = useRef(null);
-  
+
+  // Live UTC mission clock
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      const hh = String(now.getUTCHours()).padStart(2, '0');
+      const mm = String(now.getUTCMinutes()).padStart(2, '0');
+      const ss = String(now.getUTCSeconds()).padStart(2, '0');
+      setMissionTime(`Z ${hh}:${mm}:${ss}`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const unreadAlarms = alarmLog.filter(a => a.severity === 'CRITICAL' || a.severity === 'WARNING').length;
 
   // Close dropdown on outside click
@@ -24,7 +39,7 @@ export function GlobalHeader() {
   }, [showDropdown]);
 
   const handleJumpToLogs = () => {
-    setActivePanel(4); // Switch to Logs Tab
+    setActivePanel(4);
     setShowDropdown(false);
   };
 
@@ -36,9 +51,9 @@ export function GlobalHeader() {
           <Activity size={16} className={connected ? "animate-pulse text-holo" : "text-gray-500"} />
           <span className="font-bold tracking-widest text-xs sm:text-sm">UAV-TWIN // P1</span>
         </div>
-        
+
         <div className="hidden md:block h-4 w-px bg-holo/20" />
-        
+
         <div className="hidden md:flex items-center space-x-1.5 text-gray-400 text-[11px]">
           <MapPin size={13} className="text-holo/70" />
           <span>34° 01' 42" N, 118° 15' 20" W</span>
@@ -67,10 +82,10 @@ export function GlobalHeader() {
           <span>{connected ? `LINK ${latency}ms` : 'LINK LOST'}</span>
         </div>
 
-        {/* Mission Clock */}
+        {/* Live Mission Clock */}
         <div className="hidden sm:flex items-center space-x-1.5 text-gray-300 text-[11px]">
           <Clock size={13} className="text-holo/80" />
-          <span>Z 14:32:08</span>
+          <span>{missionTime}</span>
         </div>
 
         {/* Interactive Alarms Bell with Dropdown */}
@@ -96,16 +111,16 @@ export function GlobalHeader() {
                   <Bell size={13} className="text-holo" />
                   <span>ACTIVE NOTIFICATION TRAY ({alarmLog.length})</span>
                 </span>
-                
+
                 <div className="flex items-center space-x-2">
-                  <button 
+                  <button
                     onClick={clearAlarms}
                     className="text-gray-400 hover:text-plasma transition-colors"
                     title="Clear notifications"
                   >
                     <Trash2 size={13} />
                   </button>
-                  <button 
+                  <button
                     onClick={() => setShowDropdown(false)}
                     className="text-gray-400 hover:text-holo transition-colors"
                   >
@@ -117,7 +132,7 @@ export function GlobalHeader() {
               {/* Alarm List */}
               <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
                 {alarmLog.slice(0, 8).map((alarm) => (
-                  <div 
+                  <div
                     key={alarm.id}
                     className={`p-2 rounded border text-[11px] flex flex-col gap-1 ${
                       alarm.severity === 'CRITICAL' ? 'bg-plasma/15 border-plasma text-plasma' :

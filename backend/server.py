@@ -98,17 +98,20 @@ class EngineSimulation:
         
         # AI & Prognostics
         self.anomalyScore = 0.05
+        self.rulHours = 1420.0
         self.componentWear = {
-            "cyl1": 0.01,
-            "cyl2": 0.01,
-            "cyl3": 0.01,
-            "cyl4": 0.01,
-            "oilPump": 0.02,
-            "alternator": 0.01,
-            "turbo": 0.03,
-            "propGovernor": 0.01,
-            "bearings": 0.05,
-            "fuelPump": 0.02
+            "cyl1": 0.012,
+            "cyl2": 0.015,
+            "cyl3": 0.011,
+            "cyl4": 0.013,
+            "oilPump": 0.024,
+            "alternator": 0.018,
+            "turbo": 0.031,
+            "propGovernor": 0.015,
+            "bearings": 0.048,
+            "fuelPump": 0.022,
+            "hydraulics": 0.019,
+            "avionics": 0.009
         }
 
         self.last_update = time.time()
@@ -159,6 +162,13 @@ class EngineSimulation:
         self.oilPressure += (target_oil_pressure - self.oilPressure) * 0.1 + random.uniform(-0.05, 0.05)
         self.oilTemp += ((base_cht - 50) - self.oilTemp) * 0.01
 
+        # Crankcase pressure varies with RPM and blowby
+        target_crankcase = 0.8 + (self.rpm / 5500.0) * 0.6
+        if self.faults["mainBearingWear"]:
+            target_crankcase += 0.4  # Worn bearings increase blowby
+        self.crankcasePressure += (target_crankcase - self.crankcasePressure) * 0.05 + random.uniform(-0.02, 0.02)
+        self.crankcasePressure = max(0.5, self.crankcasePressure)
+
         # Electrical
         if self.faults["alternatorFailure"] or not self.generatorSwitch:
             self.batteryVoltage -= 0.01 * dt # Battery drain
@@ -166,6 +176,15 @@ class EngineSimulation:
         else:
             self.batteryVoltage = min(28.0, self.batteryVoltage + 0.1 * dt)
             self.generatorLoad = 45.0 + random.uniform(-2, 2)
+
+        # Battery amps — approximate from load
+        self.batteryAmps = self.generatorLoad * 0.5 if self.generatorSwitch and not self.faults["alternatorFailure"] else max(0.0, self.batteryAmps - 0.5 * dt)
+
+        # Turbo boost and intercooler
+        target_boost = (self.rpm / 5500.0) * 12.0 * (self.mixture / 100.0)
+        self.turboBoostPressure += (target_boost - self.turboBoostPressure) * 0.08
+        target_intercooler = 30.0 + (self.turboBoostPressure / 12.0) * 40.0
+        self.intercoolerTemp += (target_intercooler - self.intercoolerTemp) * 0.05
         
         if self.batteryVoltage < 18.0: # Very dead battery
              pass # Could trigger other failures
@@ -197,35 +216,81 @@ class EngineSimulation:
         self.avionicsTemp += (target_av_temp - self.avionicsTemp) * 0.02 + random.uniform(-0.1, 0.1)
 
         # Advanced AI Prognostics & Dynamic RUL Calculation
-        # Nominal RUL is ~1420 hours. When catastrophic faults hit, RUL crashes mathematically to minutes.
-        base_rul_hours = 1420.0 - (self.componentWear["bearings"] * 2000.0)
-        
-        # Fault impact on RUL
-        if self.faults["oilLineRupture"] or self.oilPressure < 1.0:
-            # Engine seizure imminent in 3 to 10 minutes without oil
-            time_to_seizure_hours = max(0.05, (self.oilPressure / 4.5) * 0.18) # ~3 to 10 mins
-            self.rulHours = min(base_rul_hours, time_to_seizure_hours)
-            self.componentWear["bearings"] = min(1.0, self.componentWear["bearings"] + 0.002 * dt)
+        # Nominal RUL is ~1420 hours. Component wear defines the safe operational ceiling.
+        max_wear = max(self.componentWear.values())
+        wear_limited_rul = max(0.0, 1420.0 * (1.0 - max_wear))
+
+        # Degradation over time while engine runs
+        if self.rpm > 200:
+            rpm_ratio = self.rpm / 5500.0
+            wear_rate = (1.0 + (rpm_ratio ** 2) * 2.5 + self.anomalyScore * 2.0) * (dt / 3600.0) * 15.0
+            wear_limited_rul = max(0.0, wear_limited_rul - wear_rate)
+
+        # Fault impact: compute emergency time-to-failure (TTF) across ALL active faults
+        emergency_ttf = wear_limited_rul
+
+        # 1. Prop Strike -> catastrophic instant structural loss
+        if self.faults["propStrike"]:
+            emergency_ttf = min(emergency_ttf, 0.0)
+
+        # 2. Oil Line Rupture / Loss of oil pressure under power
+        if self.faults["oilLineRupture"] or (self.rpm > 500 and self.oilPressure < 1.2):
+            oil_ratio = max(0.0, min(1.0, self.oilPressure / 4.0))
+            emergency_ttf = min(emergency_ttf, max(0.02, oil_ratio * 0.12)) # 1.2 to 7.2 mins
+            self.componentWear["bearings"] = min(1.0, self.componentWear["bearings"] + 0.003 * dt)
             self.componentWear["oilPump"] = min(1.0, self.componentWear["oilPump"] + 0.003 * dt)
-        elif self.faults["cyl2Overheat"] or self.chts[1] > 230:
-            # Thermal piston ring breakdown in ~2-4 hours
-            self.rulHours = min(base_rul_hours, 3.2 - ((self.chts[1] - 230) / 20.0) * 2.0)
-            self.componentWear["cyl2"] = min(1.0, self.componentWear["cyl2"] + 0.001 * dt)
-        elif self.faults["mainBearingWear"]:
-            self.rulHours = min(base_rul_hours, 18.5)
-            self.componentWear["bearings"] = min(1.0, self.componentWear["bearings"] + 0.0005 * dt)
-        elif self.faults["hydLeak"]:
-            self.rulHours = min(base_rul_hours, 45.0)
-            self.componentWear["hydraulics"] = min(1.0, self.componentWear["hydraulics"] + 0.001 * dt)
-        elif self.faults["alternatorFailure"]:
-            # Battery endurance ~45 mins
+
+        # 3. Major Coolant Leak -> rapid overheating
+        if self.faults["coolantLeakMajor"]:
+            emergency_ttf = min(emergency_ttf, 0.25) # ~15 mins
+            for cyl in ["cyl1", "cyl2", "cyl3", "cyl4"]:
+                self.componentWear[cyl] = min(1.0, self.componentWear[cyl] + 0.002 * dt)
+
+        # 4. Cylinder 2 Overheat / Thermal Runaway
+        if self.faults["cyl2Overheat"] or self.chts[1] > 230:
+            cht_excess = max(0.0, (self.chts[1] - 220) / 30.0)
+            emergency_ttf = min(emergency_ttf, max(0.05, 0.60 * (1.0 - min(0.9, cht_excess)))) # 3 to 36 mins
+            self.componentWear["cyl2"] = min(1.0, self.componentWear["cyl2"] + 0.002 * dt)
+
+        # 5. Carb Icing Event -> venturi choke
+        if self.faults["carbIcingEvent"] and not self.carbHeat:
+            ice_factor = max(0.1, self.iceRisk)
+            emergency_ttf = min(emergency_ttf, max(0.05, 0.30 * (1.0 - ice_factor))) # 3 to 18 mins
+
+        # 6. Avionics Overheat -> system shutdown
+        if self.faults["avionicsOverheat"] or self.avionicsTemp > 75.0:
+            emergency_ttf = min(emergency_ttf, 0.40) # ~24 mins
+            self.componentWear["avionics"] = min(1.0, self.componentWear["avionics"] + 0.002 * dt)
+
+        # 7. Hydraulic Line Leak -> surface loss
+        if self.faults["hydLeak"] or (self.hydPressure < 1000.0 and self.hydPump):
+            emergency_ttf = min(emergency_ttf, 0.65) # ~39 mins
+            self.componentWear["hydraulics"] = min(1.0, self.componentWear["hydraulics"] + 0.002 * dt)
+
+        # 8. Alternator Failure -> battery reserve
+        if self.faults["alternatorFailure"] or not self.generatorSwitch:
             battery_pct = max(0.0, (self.batteryVoltage - 18.0) / 10.0)
-            self.rulHours = min(base_rul_hours, battery_pct * 0.85)
-            self.componentWear["alternator"] = min(1.0, self.componentWear["alternator"] + 0.001 * dt)
+            emergency_ttf = min(emergency_ttf, max(0.02, battery_pct * 0.75)) # 1 to 45 mins
+            self.componentWear["alternator"] = min(1.0, self.componentWear["alternator"] + 0.002 * dt)
+
+        # 9. Prop Governor Fail -> overspeed stress
+        if self.faults["propGovernorFail"]:
+            emergency_ttf = min(emergency_ttf, 6.0) # 6 hours
+            self.componentWear["propGovernor"] = min(1.0, self.componentWear["propGovernor"] + 0.002 * dt)
+
+        # 10. Main Bearing Wear -> mechanical fatigue
+        if self.faults["mainBearingWear"]:
+            emergency_ttf = min(emergency_ttf, 14.5) # 14.5 hours
+            self.componentWear["bearings"] = min(1.0, self.componentWear["bearings"] + 0.001 * dt)
+
+        # Smooth dynamic response: drop fast on emergency, recover smoothly on clear
+        target_rul = emergency_ttf
+        if target_rul < self.rulHours:
+            self.rulHours += (target_rul - self.rulHours) * min(1.0, 4.0 * dt)
         else:
-            # Nominal degradation based on RPM & power output
-            rpm_factor = 1.0 + (self.rpm / 5500.0) ** 2 * 2.0
-            self.rulHours = max(10.0, base_rul_hours - (rpm_factor * 0.0001 * dt))
+            self.rulHours += (target_rul - self.rulHours) * min(1.0, 1.5 * dt)
+
+        self.rulHours = max(0.0, min(1420.0, self.rulHours))
 
         # Environmental Dynamics (simulate flying through atmosphere)
         base_alt = 8500.0
@@ -270,6 +335,11 @@ class EngineSimulation:
             # Spatial movement (very simple flat-earth approx for loiter)
             self.latitude += (self.groundSpeed * 0.0000005) * math.cos(math.radians(self.heading))
             self.longitude += (self.groundSpeed * 0.0000005) * math.sin(math.radians(self.heading))
+
+            # G-load varies with roll and pitch changes
+            target_g = 1.0 + abs(self.rollAngle) / 60.0 + abs(self.pitchAngle) / 90.0
+            self.gLoad += (target_g - self.gLoad) * 0.1 + random.uniform(-0.05, 0.05)
+            self.gLoad = max(0.5, min(4.0, self.gLoad))
         else:
             self.groundSpeed *= 0.95
             target_roll = random.uniform(-0.5, 0.5)
@@ -339,6 +409,7 @@ class EngineSimulation:
             "fuelLevelR": self.fuelLevelR,
             "fuelUsedTotal": self.fuelUsedTotal,
             "anomalyScore": self.anomalyScore,
+            "healthIndex": max(0.0, min(100.0, (1.0 - self.anomalyScore) * 100.0)),
             "rulHours": getattr(self, 'rulHours', 1420.0),
             "componentWear": self.componentWear,
             "faults": self.faults,
@@ -394,6 +465,20 @@ async def db_writer_loop():
 
 sim = EngineSimulation()
 clients: List[WebSocket] = []
+
+@app.get("/")
+def root():
+    return {
+        "status": "online",
+        "service": "UAV Digital Twin Telemetry Engine",
+        "docs_url": "/docs",
+        "websocket_url": "/ws/twin",
+        "frontend_url": "http://localhost:5173"
+    }
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "clients_connected": len(clients), "rpm": sim.rpm}
 
 @app.websocket("/ws/twin")
 async def websocket_endpoint(websocket: WebSocket):

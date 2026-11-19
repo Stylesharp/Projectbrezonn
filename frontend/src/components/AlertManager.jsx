@@ -65,7 +65,7 @@ export function AlertManager({ sendCommand }) {
       if (criticalAlert) setCriticalAlert(null);
       dismissedAlerts.current.clear();
     }
-  }, [telemetry]);
+  }, [telemetry, criticalAlert]);
 
   const handleMitigate = () => {
     if (criticalAlert?.mitigateCommand) {

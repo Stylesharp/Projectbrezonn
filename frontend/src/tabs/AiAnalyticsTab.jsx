@@ -17,28 +17,93 @@ import {
 } from 'recharts';
 import { BrainCircuit, AlertTriangle, TrendingDown, Activity } from 'lucide-react';
 
+/** Clamp a value to [0, 100] */
+const clamp = (v) => Math.min(100, Math.max(0, v));
+
+const COMPONENT_LABELS = {
+  cyl1: 'Cylinder 1 Rings',
+  cyl2: 'Cylinder 2 Rings',
+  cyl3: 'Cylinder 3 Rings',
+  cyl4: 'Cylinder 4 Rings',
+  oilPump: 'Oil Scavenge Pump',
+  alternator: '28V Alternator',
+  turbo: 'Turbocharger Turbine',
+  propGovernor: 'Propeller Governor',
+  bearings: 'Crankshaft Bearings',
+  fuelPump: 'Fuel Delivery Pump',
+  hydraulics: 'Hydraulic Actuators',
+  avionics: 'Avionics Core Unit'
+};
+
 export function AiAnalyticsTab() {
   const { telemetry: t, sessionFrames: history } = useTelemetryStore();
   const faults = t?.faults;
-  
-  const rulMinutes = (t?.rulHours * 60) || 6000;
-  const hours = Math.floor(rulMinutes / 60);
+
+  const rulHours = Math.max(0, t?.rulHours ?? 1420.0);
+  const rulMinutes = rulHours * 60;
+  const hours = Math.floor(rulHours);
   const mins = Math.floor(rulMinutes % 60);
-  const hasFaults = Object.values(faults || {}).some(Boolean);
+  const secs = Math.floor((rulMinutes * 60) % 60);
+  const isEmergency = rulHours < 2.0;
+  const isDegraded = rulHours < 25.0;
+  const hasFaults = Object.values(faults || {}).some(Boolean) || isEmergency;
+
+  // ── Health Radar ─────────────────────────────────────────────────────────────
+  // All axes clamped to [0, 100] and derived from real telemetry fields.
+  const maxCht = Math.max(...(t?.chts ?? [100, 100, 100, 100]));
+  const avgCht = (t?.chts ?? [100, 100, 100, 100]).reduce((a, b) => a + b, 0) / 4;
+
+  // Thermal: 100 = cool (100 °C), 0 = at or above redline (240 °C)
+  const thermalVal = clamp(100 - ((maxCht - 100) / 140) * 100);
+
+  // Mechanical: derived from RPM — high sustained RPM = more mechanical stress
+  const rpmPct = clamp((t?.rpm ?? 0) / 5500 * 100);
+  const mechanicalVal = clamp(100 - rpmPct * 0.6);
+
+  // Lubrication: oil pressure 0–5 bar → 0–100, capped
+  const oilVal = clamp(((t?.oilPressure ?? 4.5) / 5.0) * 100);
+
+  // Fuel: average of left+right tank level (each 0–50 L, combined 0–100 L → 0–100%)
+  const totalFuelPct = clamp(((t?.fuelLevelL ?? 50) + (t?.fuelLevelR ?? 50)));
+  const fuelVal = clamp(totalFuelPct); // 0–100 L maps naturally to 0–100
+
+  // Electrical: 18 V = dead (0%), 28 V = full (100%)
+  const electricalVal = clamp(((t?.batteryVoltage ?? 24) - 18) / 10 * 100);
+
+  // Structural: g-load. 1g = perfect (100). Each additional g removes 20 pts.
+  const structuralVal = clamp(100 - ((t?.gLoad ?? 1) - 1) * 20);
+
+  // Vibration: proxy via anomaly score. Low anomaly = low vibration = healthy.
+  const vibrationVal = clamp(100 - (t?.anomalyScore ?? 0.03) * 100);
+
+  // Environmental: icing risk. 0 = clear, 1 = max icing risk.
+  const envVal = clamp(100 - (t?.iceRisk ?? 0) * 100);
 
   const radarData = [
-    { axis: 'Thermal', val: Math.max(0, 100 - (Math.max(...(t?.chts || [90,90,90,90])) - 90) * 2) },
-    { axis: 'Mechanical', val: Math.max(0, 100 - (t?.vibration?.x || 0) * 500) },
-    { axis: 'Lubrication', val: Math.max(0, ((t?.oilPressure || 5) / 5) * 100) },
-    { axis: 'Fuel', val: Math.max(0, 100 - Math.abs((t?.lambda || 1) - 1) * 100) },
-    { axis: 'Electrical', val: Math.max(0, (((t?.batteryVoltage || 28) - 20) / 10) * 100) },
-    { axis: 'Structural', val: Math.max(0, 100 - ((t?.gLoad || 1) - 1) * 30) },
-    { axis: 'Vibration', val: Math.max(0, 100 - (t?.vibration?.z || 0) * 500) },
-    { axis: 'Environmental', val: Math.max(0, 100 - (t?.iceRisk || 0) * 100) },
+    { axis: 'Thermal',      val: thermalVal },
+    { axis: 'Mechanical',   val: mechanicalVal },
+    { axis: 'Lubrication',  val: oilVal },
+    { axis: 'Fuel',         val: fuelVal },
+    { axis: 'Electrical',   val: electricalVal },
+    { axis: 'Structural',   val: structuralVal },
+    { axis: 'Vibration',    val: vibrationVal },
+    { axis: 'Environmental',val: envVal },
   ];
 
+  // Composite health index — weighted average of all axes
+  const healthIndex = clamp(
+    (thermalVal * 0.20 +
+     mechanicalVal * 0.15 +
+     oilVal * 0.20 +
+     fuelVal * 0.10 +
+     electricalVal * 0.10 +
+     structuralVal * 0.10 +
+     vibrationVal * 0.10 +
+     envVal * 0.05)
+  );
+
   const anomalyData = history.map((h, i) => ({ i, score: h.anomalyScore || 0 }));
-  
+
   const componentWear = t?.componentWear || {
     'Crankshaft Bearings': 12.5,
     'Piston Rings': 8.2,
@@ -75,7 +140,7 @@ export function AiAnalyticsTab() {
 
           <div className="flex flex-col items-center mt-2">
             <GaugeArc
-              value={t?.healthIndex || 100}
+              value={healthIndex}
               max={100}
               unit="%"
               label="State of Health"
@@ -94,29 +159,34 @@ export function AiAnalyticsTab() {
       {/* RUL + WEAR */}
       <HoloPanel className="col-span-12 lg:col-span-4" title="REMAINING USEFUL LIFE & WEAR">
         <div className="flex flex-col gap-4 py-2">
-          <div className={`p-4 rounded-xl border text-center transition-all ${hasFaults ? 'border-plasma/50 bg-plasma/10' : 'border-holo/30 bg-gray-900/60'}`}>
+          <div className={`p-4 rounded-xl border text-center transition-all ${isEmergency ? 'border-plasma bg-plasma/15' : isDegraded || hasFaults ? 'border-amber-400/50 bg-amber-400/10' : 'border-holo/30 bg-gray-900/60'}`}>
             <div className="text-[10px] text-gray-400 tracking-widest mb-1">PREDICTED R.U.L.</div>
-            <div className={`text-4xl font-mono font-bold tabular-nums ${hasFaults ? 'text-plasma animate-pulse' : 'text-holo'}`} style={{ textShadow: `0 0 10px ${hasFaults ? '#ff003c' : '#00f0ff'}` }}>
-              {hours}H {String(mins).padStart(2, '0')}M
+            <div className={`text-4xl font-mono font-bold tabular-nums ${isEmergency ? 'text-plasma animate-pulse' : isDegraded ? 'text-amber-400' : 'text-holo'}`} style={{ textShadow: `0 0 10px ${isEmergency ? '#ff003c' : '#00f0ff'}` }}>
+              {hours > 0 ? `${hours}H ${String(mins).padStart(2, '0')}M` : `${mins}M ${String(secs).padStart(2, '0')}S`}
             </div>
-            <div className="text-[10px] text-gray-500 mt-2">± 45 min confidence</div>
+            <div className={`text-[10px] mt-2 font-bold ${isEmergency ? 'text-plasma animate-pulse' : isDegraded ? 'text-amber-400' : 'text-gray-500'}`}>
+              {isEmergency ? 'CRITICAL IMMINENT FAILURE' : isDegraded ? 'MAINTENANCE REQUIRED' : '± 45 min confidence'}
+            </div>
           </div>
 
           <div className="flex flex-col gap-3 max-h-[220px] overflow-y-auto pr-1 mt-2">
             {Object.entries(componentWear).map(([name, wear]) => {
-              const wc = wear > 60 ? '#ff003c' : wear > 35 ? '#facc15' : '#00f0ff';
+              // Wear values from backend are 0.0–1.0 fractions; display as percentage.
+              const wearPct = wear <= 1.0 ? wear * 100 : wear;
+              const wc = wearPct > 60 ? '#ff003c' : wearPct > 35 ? '#facc15' : '#00f0ff';
+              const label = COMPONENT_LABELS[name] || name;
               return (
                 <div key={name}>
                   <div className="flex justify-between text-[11px] mb-1">
-                    <span className="text-gray-400 truncate pr-2 uppercase">{name}</span>
+                    <span className="text-gray-400 truncate pr-2 uppercase">{label}</span>
                     <span className="font-mono text-xs tabular-nums font-bold" style={{ color: wc, textShadow: `0 0 5px ${wc}` }}>
-                      {wear.toFixed(1)}%
+                      {wearPct.toFixed(1)}%
                     </span>
                   </div>
                   <div className="h-2 bg-gray-950 border border-holo/10 rounded overflow-hidden">
                     <div
                       className="h-full transition-all duration-500"
-                      style={{ width: `${wear}%`, backgroundColor: wc, boxShadow: `0 0 8px ${wc}` }}
+                      style={{ width: `${clamp(wearPct)}%`, backgroundColor: wc, boxShadow: `0 0 8px ${wc}` }}
                     />
                   </div>
                 </div>

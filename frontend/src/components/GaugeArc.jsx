@@ -18,8 +18,8 @@ export function GaugeArc({
   const p2c = (a) => ({ x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) });
 
   const arc = (s, e) => {
-    const sp = p2c(e), ep = p2c(s);
-    return `M ${sp.x} ${sp.y} A ${r} ${r} 0 ${e - s <= Math.PI ? 0 : 1} 0 ${ep.x} ${ep.y}`;
+    const sp = p2c(s), ep = p2c(e);
+    return `M ${sp.x} ${sp.y} A ${r} ${r} 0 ${e - s >= Math.PI ? 1 : 0} 1 ${ep.x} ${ep.y}`;
   };
 
   const isRed = redline !== undefined && value >= redline;
