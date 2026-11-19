@@ -1,4 +1,4 @@
-# 🛸 UAV-TWIN // P1 (Project Obrezonn)
+# 🛸 UAV-TWIN // P1 (Project Brezonn)
 ### Cyber-Physical Digital Twin & AI Prognostics Suite for Aerospace Propulsion
 
 <div align="center">
@@ -16,7 +16,7 @@
 
 **A mission-grade cyber-physical ground control station (GCS) and digital twin combining thermodynamic propulsion modeling, high-frequency telemetry streaming, interactive 3D WebGL visualization, and AI predictive maintenance (PdM).**
 
-[Explore Architecture](#-system-architecture) • [9 Tactical Tabs](#-tactical-dashboard-breakdown) • [Quick Start](#-quick-start-local-setup) • [Vercel Deployment](#-deploy-on-vercel-frontend) • [Manual Upload Guide](#-manual-github-upload-guide)
+[Explore Architecture](#-system-architecture) • [9 Tactical Tabs](#-tactical-dashboard-breakdown) • [Quick Start](#-quick-start-local-setup) • [Vercel Deployment](#-deploy-on-vercel-frontend)
 
 </div>
 
@@ -30,7 +30,7 @@ Its onboard AI copilot predicts mechanical degradation, evaluates **Remaining Us
 
 ---
 
-## ⚡ Core Innovations & Capabilities
+## ⚡ Core Capabilities
 
 * **🌐 Interactive 3D Digital Twin**: WebGL/Three.js interactive airframe with orbit controls, dynamic thermal hotspots, and RPM-driven prop spin.
 * **📡 10Hz Low-Latency Telemetry Bus**: Bidirectional WebSocket connection pushing state payloads with sub-5ms UI synchronization.
@@ -87,7 +87,7 @@ The Ground Control Station features 9 specialized, military-spec holographic pan
 ## 📂 Repository File Structure
 
 ```
-Prozectobrezonn/
+Projectbrezonn/
 ├── backend/
 │   ├── server.py              # FastAPI application, physics loop, and WebSocket server
 │   ├── requirements.txt       # Pinned backend Python dependencies
@@ -112,37 +112,6 @@ Prozectobrezonn/
 ├── vercel.json                # Root Vercel build configuration
 └── README.md                  # Comprehensive project documentation
 ```
-
----
-
-## 📋 Manual GitHub Upload Guide
-
-If you are manually copying and uploading files into your GitHub repository via the web browser, **follow this checklist**:
-
-### ✅ Files & Folders to Upload:
-* `backend/`
-  * `server.py`
-  * `requirements.txt`
-* `frontend/`
-  * `public/` (all contents)
-  * `src/` (all components, tabs, store, assets, App.jsx, main.jsx, index.css)
-  * `index.html`
-  * `package.json`
-  * `package-lock.json`
-  * `vite.config.js`
-  * `vercel.json`
-  * `.oxlintrc.json`
-* `.gitignore`
-* `vercel.json`
-* `README.md`
-
-### ❌ DO NOT Upload (Keep Excluded):
-* 🚫 `frontend/node_modules/` *(Contains thousands of local packages; GitHub will freeze)*
-* 🚫 `frontend/dist/` *(Auto-generated build folder)*
-* 🚫 `backend/venv/` *(Local Python virtual environment)*
-* 🚫 `backend/blackbox.db` *(Large binary database file; exceeds GitHub upload limits)*
-* 🚫 `backend/session.jsonl` *(Large telemetry capture dump)*
-* 🚫 `.vscode/` or local `.env` files
 
 ---
 
@@ -196,7 +165,7 @@ npm run dev
 
 1. Push your repository to **GitHub**.
 2. Go to **[vercel.com](https://vercel.com)** and sign in with GitHub.
-3. Click **"Add New..."** ➔ **"Project"** and select your repository.
+3. Click **"Add New..."** ➔ **"Project"** and select your `Projectbrezonn` repository.
 4. **Build & Output Settings**:
    * **Framework Preset**: `Vite`
    * **Root Directory**: Leave as `./` (the pre-configured root `vercel.json` automatically compiles the `frontend` directory).
@@ -226,6 +195,3 @@ Because Vercel serverless functions do not maintain continuous persistent WebSoc
 ## 📄 License
 
 This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
-#   P r o j e c t b r e z o n n  
- #   P r o j e c t b r e z o n n  
- 
