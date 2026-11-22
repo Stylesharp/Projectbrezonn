@@ -21,6 +21,8 @@ __pycache__/
 
 # Project Datastores & Large Media Logs
 *.db
+*.db-shm
+*.db-wal
 *.sqlite3
 session.jsonl
 *.jpg

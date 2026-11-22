@@ -1,8 +1,8 @@
 import React from 'react';
 
 export function GaugeArc({
-  value, min = 0, max, redline, warnline,
-  size = 120, color = '#00f0ff', warnColor = '#facc15', criticalColor = '#ff003c',
+  value, min = 0, max, redline, warnline, invertThresholds = false,
+  size = 120, color = '#22d3ee', warnColor = '#f59e0b', criticalColor = '#f43f5e',
   label, unit, strokeWidth = 5, decimals = 0
 }) {
   const r = (size - strokeWidth * 2) / 2;
@@ -22,8 +22,8 @@ export function GaugeArc({
     return `M ${sp.x} ${sp.y} A ${r} ${r} 0 ${e - s >= Math.PI ? 1 : 0} 1 ${ep.x} ${ep.y}`;
   };
 
-  const isRed = redline !== undefined && value >= redline;
-  const isWarn = !isRed && warnline !== undefined && value >= warnline;
+  const isRed = redline !== undefined && (invertThresholds ? value <= redline : value >= redline);
+  const isWarn = !isRed && warnline !== undefined && (invertThresholds ? value <= warnline : value >= warnline);
   const fill = isRed ? criticalColor : isWarn ? warnColor : color;
 
   const uid = `g-${(label || 'x').replace(/\W/g, '')}-${size}`;
@@ -34,7 +34,7 @@ export function GaugeArc({
         <defs>
           <linearGradient id={uid} x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" stopColor={fill} stopOpacity="1" />
-            <stop offset="100%" stopColor={fill} stopOpacity="0.3" />
+            <stop offset="100%" stopColor={fill} stopOpacity="0.35" />
           </linearGradient>
           <filter id={`glow-${uid}`} x="-20%" y="-20%" width="140%" height="140%">
             <feGaussianBlur stdDeviation="3" result="blur" />
@@ -42,36 +42,54 @@ export function GaugeArc({
           </filter>
         </defs>
 
-        {/* Track */}
-        <path d={arc(startA, endA)} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth={strokeWidth} strokeLinecap="round" />
+        <path d={arc(startA, endA)} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={strokeWidth} strokeLinecap="round" />
 
-        {/* Redline zone */}
         {redline !== undefined && (
           <path
-            d={arc(startA + ((redline - min) / (max - min)) * sweep, endA)}
-            fill="none" stroke="rgba(255, 0, 60, 0.2)" strokeWidth={strokeWidth} strokeLinecap="round"
-          />
-        )}
-        
-        {/* Warnline zone */}
-        {warnline !== undefined && redline !== undefined && (
-          <path
-            d={arc(startA + ((warnline - min) / (max - min)) * sweep, startA + ((redline - min) / (max - min)) * sweep)}
-            fill="none" stroke="rgba(250, 204, 21, 0.15)" strokeWidth={strokeWidth} strokeLinecap="round"
+            d={
+              invertThresholds
+                ? arc(startA, startA + ((redline - min) / (max - min)) * sweep)
+                : arc(startA + ((redline - min) / (max - min)) * sweep, endA)
+            }
+            fill="none"
+            stroke="rgba(244, 63, 94, 0.25)"
+            strokeWidth={strokeWidth}
+            strokeLinecap="round"
           />
         )}
 
-        {/* Value arc */}
+        {warnline !== undefined && redline !== undefined && (
+          <path
+            d={
+              invertThresholds
+                ? arc(
+                    startA + ((redline - min) / (max - min)) * sweep,
+                    startA + ((warnline - min) / (max - min)) * sweep
+                  )
+                : arc(
+                    startA + ((warnline - min) / (max - min)) * sweep,
+                    startA + ((redline - min) / (max - min)) * sweep
+                  )
+            }
+            fill="none"
+            stroke="rgba(245, 158, 11, 0.18)"
+            strokeWidth={strokeWidth}
+            strokeLinecap="round"
+          />
+        )}
+
         {pct > 0.005 && (
           <path
             d={arc(startA, curA)}
-            fill="none" stroke={`url(#${uid})`} strokeWidth={strokeWidth} strokeLinecap="round"
+            fill="none"
+            stroke={`url(#${uid})`}
+            strokeWidth={strokeWidth}
+            strokeLinecap="round"
             className="transition-all duration-200 ease-out"
             filter={`url(#glow-${uid})`}
           />
         )}
 
-        {/* Endpoint dot */}
         {pct > 0.01 && (() => {
           const pt = p2c(curA);
           return <circle cx={pt.x} cy={pt.y} r={strokeWidth / 2 + 1} fill={fill} opacity={0.9} filter={`url(#glow-${uid})`} />;
@@ -79,12 +97,14 @@ export function GaugeArc({
       </svg>
 
       <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-        <span className="font-mono font-bold text-holo leading-none"
-          style={{ fontSize: size > 100 ? '1.5rem' : '1rem', color: fill, textShadow: `0 0 10px ${fill}` }}>
+        <span
+          className="font-mono font-bold leading-none"
+          style={{ fontSize: size > 100 ? '1.45rem' : '1rem', color: fill, textShadow: `0 0 10px ${fill}` }}
+        >
           {decimals > 0 ? value.toFixed(decimals) : Math.round(value)}
         </span>
         {(unit || label) && (
-          <span className="text-[10px] font-medium tracking-[0.1em] uppercase text-gray-400 mt-1">
+          <span className="text-[10px] font-medium tracking-[0.1em] uppercase text-slate-400 mt-1">
             {unit || label}
           </span>
         )}

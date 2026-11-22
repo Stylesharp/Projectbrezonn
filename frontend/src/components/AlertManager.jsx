@@ -11,66 +11,72 @@ export function AlertManager({ sendCommand }) {
   useEffect(() => {
     if (!telemetry) return;
 
-    let newAlert = null;
+    const candidates = [];
 
-    if (telemetry.faults.oilLineRupture || telemetry.oilPressure < 1.0) {
-      newAlert = {
+    if (telemetry.faults?.oilLineRupture || telemetry.oilPressure < 1.0) {
+      candidates.push({
         id: 'OIL_RUPTURE',
-        title: 'CRITICAL SYSTEM DAMAGE',
+        title: 'CRITICAL OIL PRESSURE LOSS',
         component: 'LUBRICATION SYSTEM',
         reading: `OIL PRESSURE: ${telemetry.oilPressure.toFixed(2)} BAR`,
-        copilot: [
-          '1. Throttle down to 25% immediately.',
-          '2. Prepare for emergency engine shutdown.'
-        ],
-        action: 'AUTO-MITIGATE (THROTTLE 25%)',
-        mitigateCommand: { type: 'setActuator', payload: { key: 'throttle', value: 25.0 } }
-      };
-    } else if (telemetry.faults.cyl2Overheat || telemetry.chts[1] > 240) {
-      newAlert = {
+        copilot: ['1. Throttle down to 25% immediately.', '2. Initiate emergency RTB profile.'],
+        action: 'AUTO-MITIGATE (THR 25%)',
+        mitigateCommands: [{ type: 'setActuator', payload: { key: 'throttle', value: 25.0 } }],
+      });
+    }
+    if (telemetry.faults?.cyl2Overheat || telemetry.chts?.[1] > 240) {
+      candidates.push({
         id: 'CYL2_OVERHEAT',
         title: 'THERMAL RUNAWAY DETECTED',
         component: 'CYLINDER 2 HEAD',
         reading: `CHT2: ${telemetry.chts[1].toFixed(1)} °C`,
-        copilot: [
-          '1. Enrichen mixture to max.',
-          '2. Reduce throttle by 15%.'
-        ],
+        copilot: ['1. Enrich mixture to 100%.', '2. Reduce throttle to 40%.'],
         action: 'RICH MIXTURE & REDUCE PWR',
-        mitigateCommand: { type: 'setActuator', payload: { key: 'mixture', value: 100.0 } }
-      };
-    } else if (telemetry.faults.alternatorFailure || telemetry.batteryVoltage < 22) {
-      newAlert = {
+        mitigateCommands: [
+          { type: 'setActuator', payload: { key: 'mixture', value: 100.0 } },
+          { type: 'setActuator', payload: { key: 'throttle', value: 40.0 } },
+        ],
+      });
+    }
+    if (telemetry.faults?.hydLeak || telemetry.hydPressure < 1600) {
+      candidates.push({
+        id: 'HYD_LEAK',
+        title: 'HYDRAULIC PRESSURE DROP',
+        component: 'HYDRAULIC POWER UNIT',
+        reading: `HYD: ${telemetry.hydPressure.toFixed(0)} PSI`,
+        copilot: ['1. Engage backup hydraulic pump.', '2. Restrict high-G control inputs.'],
+        action: 'CYCLE HYD PUMP',
+        mitigateCommands: [{ type: 'setActuator', payload: { key: 'hydPump', value: true } }],
+      });
+    }
+    if (telemetry.faults?.alternatorFailure || telemetry.batteryVoltage < 22) {
+      candidates.push({
         id: 'ELEC_FAIL',
-        title: 'ELECTRICAL POWER LOSS',
+        title: 'ELECTRICAL BUS UNDERVOLTAGE',
         component: 'ALTERNATOR / MAIN BUS',
         reading: `BATTERY: ${telemetry.batteryVoltage.toFixed(1)} V`,
-        copilot: [
-          '1. Shed non-essential loads.',
-          '2. Check generator switch.'
-        ],
+        copilot: ['1. Shed anti-ice & non-essential loads.', '2. Verify generator switch state.'],
         action: 'SHED LOADS',
-        mitigateCommand: { type: 'setActuator', payload: { key: 'antiIce', value: false } }
-      };
+        mitigateCommands: [
+          { type: 'setActuator', payload: { key: 'antiIce', value: false } },
+          { type: 'setActuator', payload: { key: 'generatorSwitch', value: true } },
+        ],
+      });
     }
 
-    if (newAlert) {
-      if (!dismissedAlerts.current.has(newAlert.id)) {
-         if (!criticalAlert || criticalAlert.id !== newAlert.id) {
-            setCriticalAlert(newAlert);
-         }
-      }
-    } else {
-      // Clear dismissed alerts if the conditions return to nominal
-      if (criticalAlert) setCriticalAlert(null);
-      dismissedAlerts.current.clear();
+    const activeIds = new Set(candidates.map((c) => c.id));
+    for (const id of [...dismissedAlerts.current]) {
+      if (!activeIds.has(id)) dismissedAlerts.current.delete(id);
     }
-  }, [telemetry, criticalAlert]);
+
+    const next = candidates.find((c) => !dismissedAlerts.current.has(c.id)) || null;
+    setCriticalAlert((prev) =>
+      prev?.id === next?.id ? (next ? { ...prev, reading: next.reading } : null) : next
+    );
+  }, [telemetry]);
 
   const handleMitigate = () => {
-    if (criticalAlert?.mitigateCommand) {
-      sendCommand(criticalAlert.mitigateCommand);
-    }
+    criticalAlert?.mitigateCommands?.forEach((cmd) => sendCommand(cmd));
     handleDismiss();
   };
 
@@ -82,51 +88,44 @@ export function AlertManager({ sendCommand }) {
   };
 
   return (
-    <div className="fixed top-16 right-4 z-[100] flex flex-col gap-4 pointer-events-none">
+    <div className="fixed top-16 right-4 z-[100] flex flex-col gap-3 pointer-events-none">
       <AnimatePresence>
         {criticalAlert && (
           <motion.div
             key={criticalAlert.id}
-            initial={{ opacity: 0, x: 50, scale: 0.9 }}
+            initial={{ opacity: 0, x: 40, scale: 0.94 }}
             animate={{ opacity: 1, x: 0, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.8, x: 50 }}
-            transition={{ type: 'spring', bounce: 0.4 }}
-            className="w-[400px] bg-gray-900/95 backdrop-blur-md border border-plasma shadow-[0_0_30px_rgba(255,0,60,0.4)] rounded-sm overflow-hidden pointer-events-auto"
+            exit={{ opacity: 0, x: 40, scale: 0.94 }}
+            transition={{ type: 'spring', stiffness: 320, damping: 24 }}
+            className="w-[380px] bg-slate-950/92 backdrop-blur-xl border border-rose-500/70 shadow-[0_0_32px_rgba(244,63,94,0.3)] rounded-lg overflow-hidden pointer-events-auto"
           >
-            {/* Header */}
-            <div className="bg-plasma/20 p-3 border-b border-plasma flex items-start justify-between">
-              <div className="flex items-center space-x-3">
-                <AlertTriangle className="text-plasma animate-pulse shrink-0" size={24} />
+            <div className="bg-rose-500/15 px-3.5 py-2.5 border-b border-rose-500/30 flex items-start justify-between">
+              <div className="flex items-center gap-2.5">
+                <AlertTriangle className="text-rose-400 animate-pulse shrink-0" size={20} />
                 <div>
-                  <h2 className="text-plasma font-mono font-bold text-sm tracking-widest uppercase">
-                    {criticalAlert.title}
-                  </h2>
-                  <p className="text-plasma/80 font-mono text-[10px]">{criticalAlert.component} - {criticalAlert.reading}</p>
+                  <h2 className="text-rose-300 font-bold text-xs tracking-wider uppercase">{criticalAlert.title}</h2>
+                  <p className="text-rose-200/70 text-[10px]">{criticalAlert.component} • {criticalAlert.reading}</p>
                 </div>
               </div>
-              <button onClick={handleDismiss} className="text-plasma/60 hover:text-plasma transition-colors">
-                <X size={16} />
+              <button onClick={handleDismiss} className="text-slate-400 hover:text-white cursor-pointer">
+                <X size={15} />
               </button>
             </div>
 
-            {/* Body */}
-            <div className="p-4 font-mono text-xs">
-              <div className="mb-4">
-                <div className="text-holo mb-1 text-[10px] uppercase tracking-widest flex items-center">
-                  <ShieldCheck size={12} className="mr-1" /> AI Copilot Solutions
-                </div>
-                <div className="bg-gray-950 p-2 border border-holo/20 rounded">
-                  {criticalAlert.copilot.map((step, i) => (
-                    <p key={i} className="text-gray-300 mb-1">{step}</p>
-                  ))}
-                </div>
+            <div className="p-3.5 text-xs">
+              <div className="text-cyan-300 mb-1.5 text-[10px] uppercase tracking-widest flex items-center gap-1">
+                <ShieldCheck size={12} /> AI Copilot Recommendations
               </div>
-
+              <div className="bg-slate-900/80 p-2.5 border border-white/5 rounded-md space-y-1 mb-3 text-slate-300">
+                {criticalAlert.copilot.map((step, i) => (
+                  <p key={i}>{step}</p>
+                ))}
+              </div>
               <button
                 onClick={handleMitigate}
-                className="w-full py-2 bg-plasma/20 hover:bg-plasma/40 border border-plasma text-plasma font-bold tracking-widest transition-colors shadow-[0_0_10px_rgba(255,0,60,0.2)] hover:shadow-[0_0_15px_rgba(255,0,60,0.4)]"
+                className="w-full py-2 rounded-md bg-rose-500/20 hover:bg-rose-500/35 border border-rose-400/60 text-rose-200 font-bold tracking-wider transition-all cursor-pointer"
               >
-                ACKNOWLEDGE & {criticalAlert.action}
+                EXECUTE: {criticalAlert.action}
               </button>
             </div>
           </motion.div>

@@ -1,300 +1,252 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { HoloPanel } from '../components/HoloPanel';
 import { useTelemetryStore } from '../store/useTelemetryStore';
-import { Download, Terminal as TerminalIcon, ShieldAlert, AlertTriangle, Info, Trash2, Search, Play, CheckCircle, RefreshCw } from 'lucide-react';
+import {
+  Download, Terminal as TerminalIcon, ShieldAlert, AlertTriangle, Info,
+  Trash2, Search, Play, History, FileSpreadsheet
+} from 'lucide-react';
 
-export function LogsTab() {
-  const { alarmLog, sessionFrames, clearAlarms, telemetry, connected, latency } = useTelemetryStore();
+export function LogsTab({ sendCommand = () => {} }) {
+  const {
+    alarmLog, sessionFrames, clearAlarms, telemetry,
+    setGroundBotState, setReconOption, setReplayIndex, setActivePanel
+  } = useTelemetryStore();
+
   const [filter, setFilter] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
-  
-  // Terminal state
   const [termInput, setTermInput] = useState('');
   const [termLogs, setTermLogs] = useState([
-    'MIL-STD-1553B AVIONICS TELEMETRY INTERFACE V2.4',
-    'TYPE "help" FOR AVAILABLE DIAGNOSTIC UTILITIES.',
+    'AEGIS MIL-STD-1553B AVIONICS CLI v4.0',
+    'TYPE "help" FOR DIAGNOSTICS & LIVE AIRCRAFT COMMANDS.',
     '-------------------------------------------------------',
-    '[OK] TELEMETRY SUITE: ONLINE (10Hz SYNC)',
-    '[OK] FADEC ENGINE CONTROLLER: NORMAL ENVELOPE',
-    '[OK] BLACKBOX RECORDER: ARMED AND LOGGING',
+    '[OK] TELEMETRY & BLACKBOX RECORDER: ARMED (10Hz)',
   ]);
-  const [runningDiag, setRunningDiag] = useState(false);
   const termEndRef = useRef(null);
 
   useEffect(() => {
     termEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [termLogs]);
 
-  // Export JSONL Blackbox
   const exportBlackboxJSONL = () => {
-    const framesToExport = sessionFrames.length > 0 ? sessionFrames : [telemetry];
-    const jsonlContent = framesToExport.map(f => JSON.stringify(f)).join('\n');
-    const blob = new Blob([jsonlContent], { type: 'application/x-jsonlines' });
+    const frames = sessionFrames.length > 0 ? sessionFrames : [telemetry];
+    const blob = new Blob([frames.map((f) => JSON.stringify(f)).join('\n')], { type: 'application/x-jsonlines' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `uav_blackbox_flight_${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `aegis_blackbox_${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl`;
+    a.click();
     URL.revokeObjectURL(url);
-
-    setTermLogs(prev => [...prev, `> BLACKBOX EXPORTED: ${framesToExport.length} telemetry frames packaged into JSONL.`]);
+    setTermLogs((p) => [...p, `> EXPORTED ${frames.length} FRAMES TO JSONL.`]);
   };
 
-  // Run MIL-STD Diagnostic Suite
-  const runDiagnostics = () => {
-    if (runningDiag) return;
-    setRunningDiag(true);
-    setTermLogs(prev => [
-      ...prev,
-      '-------------------------------------------------------',
-      '> INITIATING MIL-STD-810H SYSTEM DIAGNOSTIC SELF-TEST...',
-    ]);
-
-    const steps = [
-      { msg: '[TEST 1/6] AVIONICS POWER BUS: 28.0V CHECK... [PASSED]', delay: 400 },
-      { msg: `[TEST 2/6] LUBRICATION SENSORS: ${telemetry.oilPressure > 1.5 ? '[PASSED]' : '[FAILED - LOW PRESSURE]'}`, delay: 900 },
-      { msg: `[TEST 3/6] CYLINDER HEAD THERMAL UNIFORMITY: ${Math.max(...telemetry.chts) < 230 ? '[PASSED]' : '[WARNING - CYL OVERHEAT]'}`, delay: 1400 },
-      { msg: `[TEST 4/6] HYDRAULIC PRESSURE MATRIX: ${telemetry.hydPressure > 2000 ? '[PASSED]' : '[DEGRADED]'}`, delay: 1900 },
-      { msg: `[TEST 5/6] BLACKBOX STORAGE RING: ${sessionFrames.length} FRAMES BUFFERED... [OK]`, delay: 2400 },
-      { msg: '[TEST 6/6] DIGITAL TWIN PREDICTIVE MODEL SYNC: [ALL CLEAR]', delay: 2900 },
-      { msg: '> DIAGNOSTIC SUITE COMPLETE. REPORT STORED IN TELEMETRY LOG.', delay: 3200 },
-    ];
-
-    steps.forEach(({ msg, delay }) => {
-      setTimeout(() => {
-        setTermLogs(prev => [...prev, msg]);
-      }, delay);
-    });
-
-    setTimeout(() => {
-      setRunningDiag(false);
-    }, 3300);
+  const exportBlackboxCSV = () => {
+    const frames = sessionFrames.length > 0 ? sessionFrames : [telemetry];
+    const header = 'timestamp,rpm,cht_max,oil_bar,voltage_v,alt_ft,gs_kts,g_load,anomaly,rul_hrs';
+    const rows = frames.map((f) =>
+      [
+        (f.timestamp || 0).toFixed(2),
+        (f.rpm || 0).toFixed(1),
+        Math.max(...(f.chts || [0])).toFixed(1),
+        (f.oilPressure || 0).toFixed(2),
+        (f.batteryVoltage || 0).toFixed(2),
+        Math.round(f.densityAltitude || 0),
+        (f.groundSpeed || 0).toFixed(1),
+        (f.gLoad || 1).toFixed(2),
+        (f.anomalyScore || 0).toFixed(3),
+        (f.rulHours || 0).toFixed(2),
+      ].join(',')
+    );
+    const blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `aegis_telemetry_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setTermLogs((p) => [...p, `> EXPORTED ${frames.length} FRAMES TO CSV.`]);
   };
 
-  const handleCommand = (e, explicitCmd = null) => {
-    if (e) e.preventDefault();
-    const cmdText = explicitCmd !== null ? explicitCmd : termInput;
-    const cmd = cmdText.trim().toLowerCase();
-    if (!cmd) return;
+  const handleCommand = (e) => {
+    e.preventDefault();
+    const raw = termInput.trim();
+    if (!raw) return;
+    const cmd = raw.toLowerCase();
+    setTermInput('');
 
-    const newLogs = [...termLogs, `> ${cmdText}`];
-
+    const out = [`$ ${raw}`];
     if (cmd === 'help') {
-      newLogs.push(
-        'COMMANDS:',
-        '  diag     - Run automated MIL-STD diagnostic tests',
-        '  status   - Dump current engine telemetry state',
-        '  export   - Download blackbox session JSONL',
-        '  ping     - Display data link latency',
-        '  clear    - Clear terminal window',
-        '  alarms   - Print active alarm summary'
+      out.push(
+        'COMMANDS: status | diag | throttle <0-100> | deploy | recall | storm | snow | clear | pilot | reset | clearterm'
       );
-    } else if (cmd === 'diag') {
-      setTermLogs(newLogs);
-      if (explicitCmd === null) setTermInput('');
-      runDiagnostics();
+    } else if (cmd === 'clearterm') {
+      setTermLogs(['[OK] CONSOLE CLEARED.']);
       return;
     } else if (cmd === 'status') {
-      newLogs.push(
-        `[STATUS] RPM: ${Math.round(telemetry?.rpm || 0)}`,
-        `[STATUS] Oil P: ${telemetry?.oilPressure?.toFixed(2)} BAR`,
-        `[STATUS] CHT (avg): ${(telemetry?.chts?.reduce((a,b)=>a+b,0)/4 || 0).toFixed(1)} deg C`,
-        `[STATUS] RUL: ${telemetry?.rulHours != null ? (telemetry.rulHours >= 1 ? `${Math.floor(telemetry.rulHours)}H ${Math.round((telemetry.rulHours % 1) * 60)}M` : `${Math.round(telemetry.rulHours * 60)} MINS`) : '1420H 00M'}`
+      out.push(
+        `RPM: ${Math.round(telemetry.rpm)} | OIL: ${telemetry.oilPressure.toFixed(2)} BAR | HEALTH: ${Math.round(
+          (1 - (telemetry.anomalyScore || 0)) * 100
+        )}% | RUL: ${telemetry.rulHours.toFixed(1)}h`
       );
-    } else if (cmd === 'export') {
-      newLogs.push('[SYSTEM] Exporting blackbox flight recorder data...');
-      exportBlackboxJSONL();
-    } else if (cmd === 'ping') {
-      newLogs.push(`DATA LINK LATENCY: ${latency} ms | STATUS: ${connected ? 'CONNECTED (WEBSOCKET 10Hz)' : 'DISCONNECTED'}`);
-    } else if (cmd === 'clear') {
-      setTermLogs(['TERMINAL CLEARED. TYPE "help" FOR COMMANDS.']);
-      setTermInput('');
-      return;
-    } else if (cmd === 'alarms') {
-      newLogs.push(`ACTIVE LOGGED ALARMS: ${alarmLog.length} ENTRIES.`);
+    } else if (cmd === 'diag') {
+      out.push(
+        `[1/4] BUS 28V: ${telemetry.batteryVoltage.toFixed(1)}V [${telemetry.batteryVoltage > 22 ? 'PASS' : 'FAIL'}]`,
+        `[2/4] OIL PRESS: ${telemetry.oilPressure.toFixed(2)} BAR [${telemetry.oilPressure > 1.5 ? 'PASS' : 'FAIL'}]`,
+        `[3/4] MAX CHT: ${Math.max(...telemetry.chts).toFixed(1)}°C [${Math.max(...telemetry.chts) < 230 ? 'PASS' : 'WARN'}]`,
+        `[4/4] AI MODEL: ${telemetry.aiDiagnostics?.primaryCause || 'NOMINAL'} [SYNCED]`
+      );
+    } else if (cmd.startsWith('throttle ')) {
+      const v = Math.max(0, Math.min(100, Number(cmd.split(' ')[1]) || 55));
+      sendCommand({ type: 'setActuator', payload: { key: 'throttle', value: v } });
+      out.push(`[OK] THROTTLE SET TO ${v}%.`);
+    } else if (cmd === 'deploy') {
+      setGroundBotState('DEPLOYING');
+      setReconOption('cameraPreset', 'ROVER');
+      out.push('[OK] UGV-01 GROUND ROVER DEPLOYMENT INITIATED.');
+    } else if (cmd === 'recall') {
+      setGroundBotState('RECALLING');
+      out.push('[OK] UGV-01 RECALLING TO EXTRACTION POINT.');
+    } else if (cmd === 'storm' || cmd === 'snow' || cmd === 'clear') {
+      const m = cmd === 'snow' ? 'SNOW_ICING' : cmd.toUpperCase();
+      setReconOption('weatherMode', m);
+      sendCommand({ type: 'setWeather', payload: { mode: m } });
+      out.push(`[OK] WEATHER PROFILE -> ${m}`);
+    } else if (cmd === 'pilot') {
+      const next = !useTelemetryStore.getState().recon.pilotMode;
+      setReconOption('pilotMode', next);
+      sendCommand({ type: 'setFlightMode', payload: { mode: next ? 'MANUAL_PILOT' : 'LOITER' } });
+      out.push(`[OK] WASD MANUAL PILOT -> ${next ? 'ENGAGED' : 'OFF'}`);
+    } else if (cmd === 'reset') {
+      sendCommand({ type: 'triggerScenario', payload: { name: 'NOMINAL' } });
+      setReconOption('weatherMode', 'CLEAR');
+      out.push('[OK] SIMULATION RESET TO NOMINAL.');
     } else {
-      newLogs.push(`UNKNOWN COMMAND: "${cmd}". TYPE "help" FOR AVAILABLE COMMANDS.`);
+      out.push(`[ERR] UNKNOWN COMMAND "${raw}". TYPE "help".`);
     }
-
-    setTermLogs(newLogs);
-    setTermInput('');
+    setTermLogs((p) => [...p, ...out].slice(-120));
   };
 
-  // Filter alarms
-  const filteredAlarms = alarmLog.filter(a => {
-    if (filter !== 'ALL' && a.severity !== filter) return false;
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      return a.message.toLowerCase().includes(term) || a.component.toLowerCase().includes(term);
-    }
-    return true;
+  const filteredAlarms = alarmLog.filter((a) => {
+    const matchSev = filter === 'ALL' || a.severity === filter;
+    const matchText =
+      !searchTerm ||
+      a.message.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      a.component.toLowerCase().includes(searchTerm.toLowerCase());
+    return matchSev && matchText;
   });
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4 font-mono select-none">
-      {/* Left Column: Filterable Structured Alarm Log Table */}
-      <HoloPanel title="MISSION ALARM & TELEMETRY EVENT FEED" className="flex-1 flex flex-col min-h-[380px]">
-        {/* Controls Bar */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-3 border-b border-holo/20 mb-3">
-          {/* Severity Filters */}
-          <div className="flex gap-1">
-            {['ALL', 'CRITICAL', 'WARNING', 'INFO'].map(sev => (
+    <div className="grid grid-cols-12 gap-4 font-mono">
+      {/* Left: Filterable Alarm & Event Ledger */}
+      <HoloPanel title="EVENT LEDGER & BLACKBOX EXPORT" className="col-span-12 lg:col-span-7 min-h-[480px]">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div className="flex items-center gap-1.5">
+            {['ALL', 'CRITICAL', 'WARNING', 'INFO'].map((f) => (
               <button
-                key={sev}
-                onClick={() => setFilter(sev)}
-                className={`px-2.5 py-1 text-[10px] rounded border transition-colors ${
-                  filter === sev ? 'bg-holo/25 border-holo text-holo shadow-[0_0_8px_#00f0ff] font-bold' : 'border-gray-800 text-gray-400 hover:border-gray-600'
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`px-2.5 py-1 rounded-full text-[10px] border cursor-pointer ${
+                  filter === f ? 'border-cyan-400 bg-cyan-400/20 text-cyan-200' : 'border-white/10 text-slate-400'
                 }`}
               >
-                {sev}
+                {f}
               </button>
             ))}
           </div>
-
-          {/* Search & Clear */}
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <div className="relative flex-1 sm:flex-initial">
-              <Search size={12} className="absolute left-2 top-2 text-gray-500" />
-              <input
-                type="text"
-                placeholder="Search events..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full sm:w-40 pl-6 pr-2 py-1 bg-gray-950/80 border border-holo/20 rounded text-[10px] text-gray-200 focus:outline-none focus:border-holo"
-              />
-            </div>
-
-            <button 
-              onClick={clearAlarms}
-              className="p-1.5 border border-plasma/40 text-plasma hover:bg-plasma/20 rounded transition-colors"
-              title="Clear Alarms"
+          <div className="flex items-center gap-2">
+            <button
+              onClick={exportBlackboxCSV}
+              className="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/30 border border-emerald-400/40 text-emerald-200 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
             >
-              <Trash2 size={13} />
+              <FileSpreadsheet size={12} /> CSV
+            </button>
+            <button
+              onClick={exportBlackboxJSONL}
+              className="px-2.5 py-1 rounded-lg bg-cyan-400/15 hover:bg-cyan-400/30 border border-cyan-400/40 text-cyan-200 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+            >
+              <Download size={12} /> JSONL
+            </button>
+            {sessionFrames.length >= 10 && (
+              <button
+                onClick={() => {
+                  setReplayIndex(Math.max(0, sessionFrames.length - 40));
+                  setActivePanel(1);
+                }}
+                className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 border border-amber-400/40 text-amber-200 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+              >
+                <History size={12} /> REPLAY 3D
+              </button>
+            )}
+            <button onClick={clearAlarms} className="p-1.5 text-slate-400 hover:text-rose-400 cursor-pointer" title="Clear Log">
+              <Trash2 size={14} />
             </button>
           </div>
         </div>
 
-        {/* Scrolling Alarm Table */}
-        <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+        <div className="relative mb-3">
+          <Search size={13} className="absolute left-3 top-2.5 text-slate-500" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Filter alerts by subsystem or message..."
+            className="w-full bg-slate-900/80 border border-white/10 focus:border-cyan-400/60 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white outline-none"
+          />
+        </div>
+
+        <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
           {filteredAlarms.map((alarm) => (
             <div
               key={alarm.id}
-              className={`p-2.5 rounded border text-xs flex flex-col gap-1 transition-all ${
-                alarm.severity === 'CRITICAL' ? 'bg-plasma/15 border-plasma text-plasma shadow-[0_0_8px_rgba(255,0,60,0.15)]' :
-                alarm.severity === 'WARNING' ? 'bg-amber-400/10 border-amber-400/50 text-amber-300' :
-                'bg-gray-950/60 border-holo/20 text-gray-300'
+              className={`p-2.5 rounded-lg border text-xs ${
+                alarm.severity === 'CRITICAL'
+                  ? 'bg-rose-500/15 border-rose-500/50 text-rose-200'
+                  : alarm.severity === 'WARNING'
+                  ? 'bg-amber-400/10 border-amber-400/40 text-amber-200'
+                  : 'bg-slate-900/65 border-white/8 text-slate-300'
               }`}
             >
-              <div className="flex justify-between items-center text-[10px]">
-                <span className="font-bold flex items-center space-x-1 uppercase">
-                  {alarm.severity === 'CRITICAL' && <ShieldAlert size={12} className="text-plasma" />}
-                  {alarm.severity === 'WARNING' && <AlertTriangle size={12} className="text-amber-400" />}
-                  {alarm.severity === 'INFO' && <Info size={12} className="text-holo" />}
-                  <span>{alarm.component}</span>
+              <div className="flex justify-between text-[10px] opacity-80 mb-0.5">
+                <span className="font-bold flex items-center gap-1">
+                  {alarm.severity === 'CRITICAL' && <ShieldAlert size={11} />}
+                  {alarm.severity === 'WARNING' && <AlertTriangle size={11} />}
+                  {alarm.severity === 'INFO' && <Info size={11} />}
+                  {alarm.component}
                 </span>
-                <span className="opacity-70">{new Date(alarm.timestamp).toLocaleTimeString()}</span>
+                <span>{new Date(alarm.timestamp).toLocaleTimeString()}</span>
               </div>
-              <p className="text-[11px] opacity-95">{alarm.message}</p>
+              <p>{alarm.message}</p>
             </div>
           ))}
-
-          {filteredAlarms.length === 0 && (
-            <div className="text-center text-gray-500 py-12 text-xs italic">
-              NO ALARM EVENTS MATCH CURRENT FILTER
-            </div>
-          )}
         </div>
       </HoloPanel>
 
-      {/* Right Column: Blackbox Recorder & Interactive Diagnostic Terminal */}
-      <div className="flex-1 flex flex-col gap-4 min-h-[380px]">
-        {/* Blackbox Recorder Panel */}
-        <HoloPanel title="TELEMETRY BLACKBOX FLIGHT RECORDER" className="h-[150px] flex items-center justify-between px-6">
-          <div className="flex flex-col">
-            <div className="flex items-center space-x-2 text-holo text-xl font-bold">
-              <span>REC</span>
-              <span className="w-2.5 h-2.5 rounded-full bg-plasma shadow-[0_0_8px_#ff003c] animate-ping" />
+      {/* Right: Interactive Live Avionics CLI Terminal */}
+      <HoloPanel title="LIVE AVIONICS COMMAND TERMINAL" titleIcon={<TerminalIcon size={15} />} className="col-span-12 lg:col-span-5 min-h-[480px]">
+        <div className="flex-1 bg-[#03060d] rounded-lg border border-cyan-400/20 p-3 overflow-y-auto max-h-[385px] text-[11px] text-cyan-200 space-y-1 mb-2.5">
+          {termLogs.map((line, idx) => (
+            <div key={idx} className={line.startsWith('$') ? 'text-amber-300 font-bold' : line.includes('FAIL') || line.includes('[ERR]') ? 'text-rose-400' : 'text-cyan-200/90'}>
+              {line}
             </div>
-            <p className="text-[11px] text-gray-400 mt-1">
-              BUFFER: <strong className="text-holo">{sessionFrames.length}</strong> frames @ 10Hz ({((sessionFrames.length * 0.1) / 60).toFixed(1)} mins)
-            </p>
-            <p className="text-[10px] text-gray-500">FORMAT: IEEE 754 JSONL FLIGHT LOG</p>
-          </div>
+          ))}
+          <div ref={termEndRef} />
+        </div>
 
-          <button 
-            onClick={exportBlackboxJSONL}
-            className="flex items-center space-x-2 px-4 py-2.5 bg-holo/15 hover:bg-holo/30 border border-holo text-holo rounded text-xs font-bold transition-all shadow-[0_0_12px_rgba(0,240,255,0.2)] active:scale-95"
+        <form onSubmit={handleCommand} className="flex gap-2">
+          <input
+            type="text"
+            value={termInput}
+            onChange={(e) => setTermInput(e.target.value)}
+            placeholder='Enter command (help, diag, storm, deploy...)'
+            className="flex-1 bg-slate-900/90 border border-white/15 focus:border-cyan-400 rounded-lg px-3 py-2 text-xs text-white outline-none"
+          />
+          <button
+            type="submit"
+            className="px-3 py-2 rounded-lg bg-cyan-400/20 hover:bg-cyan-400/35 border border-cyan-400/50 text-cyan-200 text-xs font-bold flex items-center gap-1 cursor-pointer"
           >
-            <Download size={15} />
-            <span>EXPORT JSONL</span>
+            <Play size={12} /> RUN
           </button>
-        </HoloPanel>
-        
-        {/* Interactive MIL-STD Checklist & Command Terminal */}
-        <HoloPanel title="MIL-STD-1553B DIAGNOSTIC TERMINAL" className="flex-1 flex flex-col" scanline>
-          {/* Quick Action Bar */}
-          <div className="flex gap-2 pb-2 mb-2 border-b border-holo/10">
-            <button 
-              onClick={runDiagnostics} 
-              disabled={runningDiag}
-              className="px-2 py-1 bg-holo/10 hover:bg-holo/25 border border-holo/30 text-holo text-[10px] rounded flex items-center space-x-1"
-            >
-              {runningDiag ? <RefreshCw size={11} className="animate-spin" /> : <Play size={11} />}
-              <span>RUN DIAGNOSTIC SUITE</span>
-            </button>
-
-            <button 
-              onClick={(e) => handleCommand(e, 'status')}
-              className="px-2 py-1 bg-gray-900 border border-gray-700 text-gray-300 hover:text-holo text-[10px] rounded"
-            >
-              SNAPSHOT
-            </button>
-
-            <button 
-              onClick={() => setTermLogs(['TERMINAL CLEARED.'])} 
-              className="px-2 py-1 bg-gray-900 border border-gray-700 text-gray-300 hover:text-plasma text-[10px] rounded"
-            >
-              CLEAR
-            </button>
-          </div>
-
-          {/* Terminal Console Output */}
-          <div className="flex-1 p-2.5 bg-gray-950/95 border border-gray-800 rounded font-mono text-[11px] text-gray-300 overflow-y-auto space-y-1">
-            {termLogs.map((log, idx) => (
-              <div 
-                key={idx} 
-                className={
-                  log.includes('[PASSED]') || log.includes('[OK]') ? 'text-holo' :
-                  log.includes('[FAILED') || log.includes('CRITICAL') ? 'text-plasma' :
-                  log.includes('[WARNING') ? 'text-amber-400' :
-                  log.startsWith('>') ? 'text-gray-400 font-bold' :
-                  'text-gray-300'
-                }
-              >
-                {log}
-              </div>
-            ))}
-            <div ref={termEndRef} />
-          </div>
-
-          {/* Terminal Command Input */}
-          <form onSubmit={handleCommand} className="mt-2 flex items-center space-x-2">
-            <TerminalIcon size={14} className="text-holo shrink-0" />
-            <input
-              type="text"
-              placeholder="Enter command (e.g. help, diag, status)..."
-              value={termInput}
-              onChange={(e) => setTermInput(e.target.value)}
-              className="flex-1 bg-gray-950 border border-holo/30 px-2 py-1 rounded text-xs text-holo placeholder-gray-600 focus:outline-none focus:border-holo"
-            />
-            <button type="submit" className="px-3 py-1 bg-holo/20 hover:bg-holo/30 border border-holo text-holo text-xs font-bold rounded">
-              SEND
-            </button>
-          </form>
-        </HoloPanel>
-      </div>
+        </form>
+      </HoloPanel>
     </div>
   );
 }
