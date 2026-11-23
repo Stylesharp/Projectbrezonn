@@ -382,7 +382,7 @@ export function TacticalMapTab({ sendCommand = () => {} }) {
 
   const handleFlyTo = (targetLat, targetLon, label) => {
     const wpt = {
-      id: `MAP-${Math.floor(10 + Math.random() * 89)}`,
+      id: `MAP-${Date.now().toString(36)}-${Math.floor(100 + Math.random() * 900)}`,
       name: label,
       lat: Number(targetLat.toFixed(5)),
       lon: Number(targetLon.toFixed(5)),
